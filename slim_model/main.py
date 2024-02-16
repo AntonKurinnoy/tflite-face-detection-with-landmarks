@@ -6,10 +6,12 @@ import torch
 
 from cfg import cfg_slim
 from prior_box import PriorBox
-from utils import resize_image, resize_image_to_original, decode_landm, decode, get_head_turn, py_cpu_nms
+from image_utils import resize_image, resize_image_to_original
+from model_utils import decode, nms
+from slim_model.utils import get_head_turn, decode_landm
 
-parser = argparse.ArgumentParser(description='Test')
-parser.add_argument('-i', '--image_path', default='Adrien_Brody.png')
+parser = argparse.ArgumentParser()
+parser.add_argument('-i', '--image_path', default='./../Adrien_Brody.png')
 args = parser.parse_args()
 
 
@@ -17,6 +19,7 @@ if __name__ == '__main__':
     image_path = args.image_path
 
     w, h, side = 320, 320, 320
+    device = "cpu"
     img_raw = cv.imread(image_path)
     original_height, original_width = img_raw.shape[:2]
     resized_img_raw = resize_image(img_raw, side)
@@ -24,7 +27,7 @@ if __name__ == '__main__':
     resized_img -= (104, 117, 123)
     resized_img = resized_img.transpose(2, 0, 1)
     resized_img = torch.from_numpy(resized_img).unsqueeze(0)
-    img = resized_img.to("cpu")
+    img = resized_img.to(device)
 
     interpreter = tf.lite.Interpreter(model_path="slim.tflite")
     input_details = interpreter.get_input_details()
@@ -48,12 +51,12 @@ if __name__ == '__main__':
     # boxes from loc
     priorbox = PriorBox(cfg_slim, image_size=(w, h))
     priors = priorbox.forward()
-    priors = priors.to("cpu")
+    priors = priors.to(device)
     prior_data = priors.data
     loc_torch = torch.from_numpy(output_data0.squeeze(0))
     boxes = decode(loc_torch, prior_data, cfg_slim['variance'])
     scale = torch.Tensor([w, h, w, h])
-    scale = scale.to("cpu")
+    scale = scale.to(device)
     boxes = boxes * scale
     boxes = boxes.cpu().numpy()
 
@@ -81,7 +84,7 @@ if __name__ == '__main__':
     # do NMS
     nms_threshold = 0.4
     dets = np.hstack((boxes, scores[:, np.newaxis])).astype(np.float32, copy=False)
-    keep = py_cpu_nms(dets, nms_threshold)
+    keep = nms(dets, nms_threshold)
     dets = dets[keep, :]
     landms = landms[keep]
 
@@ -119,6 +122,6 @@ if __name__ == '__main__':
         cv.putText(resized_img_raw, head_turn, (cx, cy - 15), cv.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255))
 
     # save image
-    name = "result.png"
     resized_image_back_to_original = resize_image_to_original(resized_img_raw, original_width,original_height)
-    cv.imwrite(name, resized_image_back_to_original)
+
+    cv.imwrite("./../result.png", resized_image_back_to_original)
